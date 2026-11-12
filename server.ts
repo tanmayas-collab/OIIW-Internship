@@ -1066,6 +1066,42 @@ Destination Mailbox: ${ADMISSIONS_EMAIL}
     app.use(vite.middlewares);
   }
 
+  // Ensure API and JSON body-parser errors (400 malformed JSON, 413 payload too large, 500) always return JSON
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+
+    const typedErr = err as { status?: number; statusCode?: number; type?: string; message?: string };
+    const status = typedErr?.status || typedErr?.statusCode || 500;
+    const isApiRequest = req.path.startsWith('/api/') || req.originalUrl.startsWith('/api/');
+
+    if (!isApiRequest && typedErr?.type !== 'entity.too.large' && typedErr?.type !== 'entity.parse.failed') {
+      next(err);
+      return;
+    }
+
+    if (typedErr?.type === 'entity.too.large' || status === 413) {
+      res.status(413).json({
+        error: 'Submission payload is too large. Please keep your Student ID file under 5 MB and try again.',
+      });
+      return;
+    }
+
+    if (typedErr?.type === 'entity.parse.failed' || (err instanceof SyntaxError && status === 400)) {
+      res.status(400).json({ error: 'Invalid JSON request body.' });
+      return;
+    }
+
+    console.error('Unhandled API error:', err);
+    res.status(status >= 400 && status < 600 ? status : 500).json({
+      error: isApiRequest
+        ? (status >= 400 && status < 500 && typedErr?.message ? typedErr.message : 'Server error occurred. Please try again.')
+        : 'Bad request.',
+    });
+  });
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 OIIW Server running on http://0.0.0.0:${PORT} (${IS_PRODUCTION ? 'production' : 'development'})`);
     if (!HAS_CONFIGURED_ADMIN_PASSWORD) {

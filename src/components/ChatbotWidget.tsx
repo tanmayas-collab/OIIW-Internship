@@ -137,7 +137,23 @@ export const ChatbotWidget: React.FC<ChatbotWidgetProps> = ({
         throw new Error(`HTTP ${res.status}`);
       }
 
-      const data = await res.json();
+      const rawText = await res.text();
+      let data: { reply?: unknown } | null = null;
+      if (rawText.trim()) {
+        try {
+          const parsed: unknown = JSON.parse(rawText);
+          if (parsed && typeof parsed === 'object') {
+            data = parsed as { reply?: unknown };
+          }
+        } catch {
+          data = null;
+        }
+      }
+
+      if (!data) {
+        throw new Error('Non-JSON response from chat API');
+      }
+
       const replyText =
         typeof data.reply === 'string' && data.reply.trim()
           ? data.reply

@@ -469,10 +469,47 @@ export const ApplicationForm: React.FC<ApplicationFormProps> = ({
         }),
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: { success?: boolean; applicationId?: string; error?: string; message?: string } | null = null;
+      if (rawText.trim()) {
+        try {
+          const parsed: unknown = JSON.parse(rawText);
+          if (parsed && typeof parsed === 'object') {
+            data = parsed as { success?: boolean; applicationId?: string; error?: string; message?: string };
+          }
+        } catch {
+          data = null;
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to submit application');
+        if (data && (typeof data.error === 'string' || typeof data.message === 'string')) {
+          throw new Error(data.error || data.message || `Submission failed (HTTP ${response.status}).`);
+        }
+        if (response.status === 413) {
+          throw new Error(
+            'Your uploaded Student ID proof makes the submission too large (HTTP 413). Please upload a smaller file under 5 MB.'
+          );
+        }
+        if (response.status === 429) {
+          throw new Error(
+            'Too many submission attempts in a short time (HTTP 429). Please wait a few minutes and try again.'
+          );
+        }
+        if (response.status === 404 || /page could not be found|cannot post/i.test(rawText)) {
+          throw new Error(
+            `Application submission API (/api/submit-application) was not found on this server (HTTP ${response.status}). Ensure the full app server is running ("npm run dev" or "npm start", not a static preview), or email ${PROGRAM_CONSTANTS.CONTACT_EMAIL}.`
+          );
+        }
+        throw new Error(
+          `Unexpected server response (HTTP ${response.status}). Please confirm the backend server is running and try again, or email ${PROGRAM_CONSTANTS.CONTACT_EMAIL}.`
+        );
+      }
+
+      if (!data || typeof data.applicationId !== 'string' || !data.applicationId.trim()) {
+        throw new Error(
+          `The server did not return a valid confirmation receipt (possible static-only host or proxy fallback). Please ensure the OIIW backend server is running, or email ${PROGRAM_CONSTANTS.CONTACT_EMAIL}.`
+        );
       }
 
       const receipt: SubmittedApplicationReceipt = {
